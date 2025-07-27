@@ -1,0 +1,22 @@
+name: revision_app
+description: A Flutter app for revision tracking with Supabase.
+version: 1.0.0+1
+
+publish_to: 'none' # Remove this line if you plan to publish the package
+
+environment:
+  sdk: ">=2.18.0 <3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  supabase_flutter: ^1.0.0
+  cupertino_icons: ^1.0.2
+  intl: ^0.18.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
