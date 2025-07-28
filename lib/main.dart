@@ -11,7 +11,7 @@ import 'package:flutter/services.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
+  print('🧪 SUPABASE URL: https://lstsvfifherpbzpwigse.supabase.co');
   await Supabase.initialize(
     url: 'https://lstsvfifherpbzpwigse.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxzdHN2ZmlmaGVycGJ6cHdpZ3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM1NTUxNDMsImV4cCI6MjA2OTEzMTE0M30.CpxBNDmoJDFxl9rbGEn_DaG60Un7aTDmHllT9qi04_8',
