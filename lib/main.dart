@@ -189,6 +189,7 @@ class _WidgetCard extends StatefulWidget {
 }
 
 class _WidgetCardState extends State<_WidgetCard> {
+  late Future<List<double>> _weeklyAveragesFuture;
   bool _hovering = false;
 
   void _onTap() {
@@ -205,15 +206,26 @@ class _WidgetCardState extends State<_WidgetCard> {
     }
   }
 
+  @override
+  void initState() {
+    super.initState();
+    _weeklyAveragesFuture = fetchWeeklyConfidenceAverages();
+  }
+
   Future<List<double>> fetchWeeklyConfidenceAverages() async {
     final supabase = Supabase.instance.client;
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) return [];
 
     try {
+      // Calculate start of today and start of current week (Monday)
       final now = DateTime.now();
-      final fiveWeeksAgo = now.subtract(const Duration(days: 7 * 4));
+      final today = DateTime(now.year, now.month, now.day);
+      final currentWeekday = today.weekday;
+      final startOfCurrentWeek = today.subtract(Duration(days: currentWeekday - 1));
+      final fiveWeeksAgo = startOfCurrentWeek.subtract(const Duration(days: 7 * 4));
 
+      // Query only confidence and revised_at, rely on RLS for user filtering
       final response = await supabase
           .from('revisions')
           .select('confidence, revised_at')
@@ -234,9 +246,10 @@ class _WidgetCardState extends State<_WidgetCard> {
         final revisedAt = DateTime.tryParse(rev['revised_at']);
         if (confidence == null || revisedAt == null) continue;
 
-        final daysDiff = now.difference(revisedAt).inDays;
-        final weekIndex = 4 - (daysDiff ~/ 7);
-
+        // Calculate week index (0 = oldest, 4 = current week)
+        final diffInDays = revisedAt.difference(fiveWeeksAgo).inDays;
+        final weekIndex = diffInDays ~/ 7;
+        // Only assign if revision falls within the 5 displayed weeks
         if (weekIndex >= 0 && weekIndex < 5) {
           weekBuckets[weekIndex]?.add(confidence);
         }
@@ -262,7 +275,7 @@ class _WidgetCardState extends State<_WidgetCard> {
 
   Widget _buildConfidenceChart() {
     return FutureBuilder<List<double>>(
-      future: fetchWeeklyConfidenceAverages(),
+      future: _weeklyAveragesFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
@@ -270,7 +283,10 @@ class _WidgetCardState extends State<_WidgetCard> {
 
         final averages = snapshot.data ?? [];
 
-        return _buildBarChart(averages);
+        return GestureDetector(
+          onTap: _onTap,
+          child: _buildBarChart(averages),
+        );
       },
     );
   }
@@ -324,8 +340,16 @@ class _WidgetCardState extends State<_WidgetCard> {
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
+      onEnter: (_) {
+        if (!_hovering) {
+          setState(() => _hovering = true);
+        }
+      },
+      onExit: (_) {
+        if (_hovering) {
+          setState(() => _hovering = false);
+        }
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'topic_confidence_page.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 class ConfidenceRatingPage extends StatefulWidget {
   const ConfidenceRatingPage({super.key});
@@ -33,85 +34,97 @@ class _ConfidenceRatingPageState extends State<ConfidenceRatingPage> {
 
       final List<Map<String, dynamic>> result = [];
 
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final currentWeekday = today.weekday;
+      final startOfCurrentWeek = today.subtract(Duration(days: currentWeekday - 1));
+      final fiveWeeksAgo = startOfCurrentWeek.subtract(const Duration(days: 7 * 4));
+
       for (final subject in subjects) {
         final subjectId = subject['id'];
         final subjectName = subject['name'];
 
-        // Fetch all topics for the subject
+        // Fetch all topic IDs for the subject
         final topics = await supabase
             .from('topics')
-            .select('id, name')
-            .eq('subject_id', subjectId)
-            .order('name', ascending: true);
+            .select('id')
+            .eq('subject_id', subjectId);
 
-        // Group topic IDs by topic name to handle duplicates
-        final Map<String, List<int>> topicNameToIds = {};
-        for (final topic in topics) {
-          final name = topic['name'] as String;
-          final id = topic['id'] as int;
-          topicNameToIds.putIfAbsent(name, () => []).add(id);
-        }
-
-        double totalConfidence = 0;
-        int count = 0;
-
-        for (final entry in topicNameToIds.entries) {
-          final topicName = entry.key;
-          final topicIds = entry.value;
-
-          // Fetch revisions for all topic IDs with this name
-          final revisions = await supabase
-              .from('revisions')
-              .select('confidence, revised_at, topic_id')
-              .in_('topic_id', topicIds)
-              .order('revised_at', ascending: false);
-
-          if (revisions == null || revisions.isEmpty) {
-            debugPrint('Skipping topic "$topicName" - no revisions found.');
-            continue;
-          }
-
-          // Find the revision with the latest revised_at timestamp
-          Map<String, dynamic>? newestRevision;
-          DateTime? newestTime;
-
-          for (final rev in revisions) {
-            final revisedAtStr = rev['revised_at'] as String?;
-            if (revisedAtStr == null) continue;
-
-            final revisedAt = DateTime.tryParse(revisedAtStr);
-            if (revisedAt == null) continue;
-
-            if (newestTime == null || revisedAt.isAfter(newestTime)) {
-              newestTime = revisedAt;
-              newestRevision = rev;
-            }
-          }
-
-          if (newestRevision == null || newestRevision['confidence'] == null) {
-            debugPrint('Skipping topic "$topicName" due to no valid confidence.');
-            continue;
-          }
-
-          final conf = (newestRevision['confidence'] as num).toDouble();
-          debugPrint(
-            'Including topic "$topicName" with confidence $conf from $newestTime',
-          );
-
-          totalConfidence += conf;
-          count += 1;
-        }
-
-        if (count > 0) {
+        if (topics == null || topics.isEmpty) {
+          // No topics for this subject, skip
           result.add({
             'subjectId': subjectId,
             'subject': subjectName,
-            'meanConfidence': totalConfidence / count,
+            'weeklyConfidences': List<double>.filled(5, 0),
+            'meanConfidence': 0.0,
           });
+          continue;
         }
+
+        final topicIds = topics.map<int>((t) => t['id'] as int).toList();
+
+        // Prepare list for weekly confidences and counts
+        List<double> weeklyConfidences = List.filled(5, 0);
+        List<int> weeklyCounts = List.filled(5, 0);
+
+        // Fetch all revisions for these topic IDs within last 5 weeks
+        final revisions = await supabase
+            .from('revisions')
+            .select('confidence, revised_at')
+            .in_('topic_id', topicIds)
+            .gte('revised_at', fiveWeeksAgo.toIso8601String())
+            .lte('revised_at', startOfCurrentWeek.add(const Duration(days: 6)).toIso8601String())
+            .order('revised_at', ascending: true);
+
+        if (revisions != null && revisions.isNotEmpty) {
+          for (final rev in revisions) {
+            final revisedAtStr = rev['revised_at'] as String?;
+            if (revisedAtStr == null) continue;
+            final revisedAt = DateTime.tryParse(revisedAtStr);
+            if (revisedAt == null) continue;
+
+            final diffInDays = revisedAt.difference(fiveWeeksAgo).inDays;
+            final weekIndex = diffInDays ~/ 7;
+            if (weekIndex < 0 || weekIndex >= 5) continue;
+
+            final confValue = rev['confidence'];
+            if (confValue == null) continue;
+            final conf = (confValue as num).toDouble();
+
+            weeklyConfidences[weekIndex] += conf;
+            weeklyCounts[weekIndex] += 1;
+          }
+        }
+
+        // Calculate average confidence per week
+        for (int i = 0; i < 5; i++) {
+          if (weeklyCounts[i] > 0) {
+            weeklyConfidences[i] = weeklyConfidences[i] / weeklyCounts[i];
+          } else {
+            weeklyConfidences[i] = 0.0;
+          }
+        }
+
+        // Calculate mean confidence across weeks with data
+        double meanConfidence = 0;
+        int nonZeroWeeks = 0;
+        for (final conf in weeklyConfidences) {
+          if (conf > 0) {
+            meanConfidence += conf;
+            nonZeroWeeks++;
+          }
+        }
+        meanConfidence = nonZeroWeeks > 0 ? meanConfidence / nonZeroWeeks : 0;
+
+        result.add({
+          'subjectId': subjectId,
+          'subject': subjectName,
+          'weeklyConfidences': weeklyConfidences,
+          'meanConfidence': meanConfidence,
+        });
       }
 
-      // Sort according to current isDescending value
+      // Sort the subjects by mean confidence according to isDescending flag
       result.sort((a, b) => isDescending
           ? b['meanConfidence'].compareTo(a['meanConfidence'])
           : a['meanConfidence'].compareTo(b['meanConfidence']));
@@ -236,18 +249,54 @@ class _ConfidenceRatingPageState extends State<ConfidenceRatingPage> {
                                                   ),
                                             ),
                                             const SizedBox(height: 16),
-                                            Container(
-                                              height: 40,
-                                              decoration: BoxDecoration(
-                                                color: isLight ? Colors.grey[200] : Colors.grey[800],
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                              child: Center(
-                                                child: Text(
-                                                  "Confidence Rating: ${subject['meanConfidence'].toStringAsFixed(2)}",
-                                                  style: TextStyle(
-                                                    color: isLight ? Colors.black : Colors.white,
+                                            SizedBox(
+                                              height: 200,
+                                              child: BarChart(
+                                                BarChartData(
+                                                  alignment: BarChartAlignment.spaceAround,
+                                                  maxY: 100,
+                                                  minY: 0,
+                                                  borderData: FlBorderData(show: false),
+                                                  gridData: FlGridData(show: false),
+                                                  titlesData: FlTitlesData(
+                                                    bottomTitles: AxisTitles(
+                                                      sideTitles: SideTitles(
+                                                        showTitles: true,
+                                                        getTitlesWidget: (value, _) {
+                                                          return Text('W${(value + 1).toInt()}',
+                                                              style: TextStyle(
+                                                                color: isLight ? Colors.black : Colors.white,
+                                                                fontWeight: FontWeight.bold,
+                                                                fontSize: 12,
+                                                              ));
+                                                        },
+                                                        interval: 1,
+                                                        reservedSize: 24,
+                                                      ),
+                                                    ),
+                                                    leftTitles: AxisTitles(
+                                                      sideTitles: SideTitles(showTitles: false),
+                                                    ),
+                                                    rightTitles: AxisTitles(
+                                                      sideTitles: SideTitles(showTitles: false),
+                                                    ),
+                                                    topTitles: AxisTitles(
+                                                      sideTitles: SideTitles(showTitles: false),
+                                                    ),
                                                   ),
+                                                  barGroups: List.generate(5, (i) {
+                                                    return BarChartGroupData(
+                                                      x: i,
+                                                      barRods: [
+                                                        BarChartRodData(
+                                                          toY: subject['weeklyConfidences'][i],
+                                                          width: 12,
+                                                          color: Colors.blue,
+                                                          borderRadius: BorderRadius.circular(4),
+                                                        ),
+                                                      ],
+                                                    );
+                                                  }),
                                                 ),
                                               ),
                                             ),
