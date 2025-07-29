@@ -36,7 +36,17 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       setState(() {
-        error = 'Login error: $e';
+        if (e.toString().toLowerCase().contains('failed host lookup')) {
+          error = 'Network error. Please check your internet connection.';
+        } else if (e.toString().toLowerCase().contains('invalid login credentials')) {
+          error = 'Incorrect username or password.';
+        } else if (e.toString().toLowerCase().contains('missing email')) {
+          error = 'Please enter email and/or password';
+        } else if (e.toString().toLowerCase().contains('email not confirmed')) {
+          error = 'Please confirm email using the email sent to you';
+        } else {
+          error = 'Login failed. Please try again.';
+        }
       });
     } finally {
       setState(() {
@@ -125,7 +135,23 @@ class _SignUpPageState extends State<SignUpPage> {
       }
     } catch (e) {
       setState(() {
-        error = 'Signup error: $e';
+      String err = e.toString().toLowerCase();
+
+			if (err.contains('failed host lookup')) {
+				error = 'Network error. Please check your internet connection.';
+			} else if (err.contains('password should be at least')) {
+				error = 'Password must be at least 6 characters';
+			} else if (err.contains('email address') && err.contains('is invalid')) {
+				error = 'Invalid email address.';
+			} else if (err.contains('anonymous sign-ins are disabled')) {
+				error = 'Please enter an email address';
+			} else if (err.contains('signup requires a valid password')) {
+				error = 'Please enter a password.';
+			} else if (err.contains('unable to validate email address: invalid format')) {
+				error = 'Please enter a valid email address.';
+			} else {
+				error = 'Signup failed. Please try again.';
+			}
       });
     } finally {
       setState(() {

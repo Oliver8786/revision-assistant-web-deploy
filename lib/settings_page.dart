@@ -28,6 +28,7 @@ class SettingsPage extends StatelessWidget {
               Text(user.email ?? 'Unknown email'),
               const SizedBox(height: 20),
             ],
+            const SizedBox(height: 12),
             ElevatedButton.icon(
               onPressed: () => _signOut(context),
               icon: const Icon(Icons.logout),

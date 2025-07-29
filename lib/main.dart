@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gotrue/gotrue.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -204,6 +205,121 @@ class _WidgetCardState extends State<_WidgetCard> {
     }
   }
 
+  Future<List<double>> fetchWeeklyConfidenceAverages() async {
+    final supabase = Supabase.instance.client;
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) return [];
+
+    try {
+      final now = DateTime.now();
+      final fiveWeeksAgo = now.subtract(const Duration(days: 7 * 4));
+
+      final response = await supabase
+          .from('revisions')
+          .select('confidence, revised_at')
+          .gte('revised_at', fiveWeeksAgo.toIso8601String());
+
+      if (response == null || response.isEmpty) return List.filled(5, 0);
+
+      final Map<int, List<double>> weekBuckets = {
+        0: [],
+        1: [],
+        2: [],
+        3: [],
+        4: [],
+      };
+
+      for (final rev in response) {
+        final confidence = (rev['confidence'] as num?)?.toDouble();
+        final revisedAt = DateTime.tryParse(rev['revised_at']);
+        if (confidence == null || revisedAt == null) continue;
+
+        final daysDiff = now.difference(revisedAt).inDays;
+        final weekIndex = 4 - (daysDiff ~/ 7);
+
+        if (weekIndex >= 0 && weekIndex < 5) {
+          weekBuckets[weekIndex]?.add(confidence);
+        }
+      }
+
+      final List<double> weeklyAverages = [];
+      for (int i = 0; i < 5; i++) {
+        final bucket = weekBuckets[i]!;
+        if (bucket.isEmpty) {
+          weeklyAverages.add(0);
+        } else {
+          final avg = bucket.reduce((a, b) => a + b) / bucket.length;
+          weeklyAverages.add(avg);
+        }
+      }
+
+      return weeklyAverages;
+    } catch (e) {
+      print('Error fetching grouped weekly averages: $e');
+      return List.filled(5, 0);
+    }
+  }
+
+  Widget _buildConfidenceChart() {
+    return FutureBuilder<List<double>>(
+      future: fetchWeeklyConfidenceAverages(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final averages = snapshot.data ?? [];
+
+        return _buildBarChart(averages);
+      },
+    );
+  }
+
+  Widget _buildBarChart(List<double> averages) {
+    return BarChart(
+      BarChartData(
+        barGroups: averages.asMap().entries.map((entry) {
+          final index = entry.key;
+          final value = entry.value;
+          return BarChartGroupData(
+            x: index,
+            barRods: [
+              BarChartRodData(
+                toY: value,
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(4),
+                width: 12,
+              ),
+            ],
+          );
+        }).toList(),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, _) =>
+                  Text('W${value.toInt() + 1}', style: const TextStyle(fontSize: 10)),
+            ),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              interval: 20,
+              getTitlesWidget: (value, _) => Text(
+                value.toInt().toString(),
+                style: const TextStyle(fontSize: 10),
+              ),
+            ),
+          ),
+          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        ),
+        gridData: FlGridData(show: false),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
@@ -241,22 +357,11 @@ class _WidgetCardState extends State<_WidgetCard> {
                           color: isLight ? Colors.black : Colors.white,
                         ),
                   ),
-                  const Spacer(),
-                  Container(
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: isLight ? Colors.grey[200] : Colors.grey[800],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Text(
-                        "Chart Placeholder",
-                        style: TextStyle(
-                          color: isLight ? Colors.black : Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
+                  const SizedBox(height: 16),
+                  if (widget.index == 0)
+                    Expanded(child: _buildConfidenceChart())
+                  else
+                    const Spacer(),
                 ],
               ),
             ),
