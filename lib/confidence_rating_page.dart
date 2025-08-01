@@ -267,7 +267,7 @@ class _ConfidenceRatingPageState extends State<ConfidenceRatingPage> {
                                                               style: TextStyle(
                                                                 color: isLight ? Colors.black : Colors.white,
                                                                 fontWeight: FontWeight.bold,
-                                                                fontSize: 12,
+                                                                fontSize: 15,
                                                               ));
                                                         },
                                                         interval: 1,
@@ -290,7 +290,7 @@ class _ConfidenceRatingPageState extends State<ConfidenceRatingPage> {
                                                       barRods: [
                                                         BarChartRodData(
                                                           toY: subject['weeklyConfidences'][i],
-                                                          width: 12,
+                                                          width: 50,
                                                           color: Colors.blue,
                                                           borderRadius: BorderRadius.circular(4),
                                                         ),
